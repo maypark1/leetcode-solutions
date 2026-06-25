@@ -30,5 +30,7 @@ jobs:
       - name: Sync to Notion
         env:
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
-          NOTION_DATABASE_ID: ${{ secrets.NOTION_DATABASE_ID }}
+          NOTION_PROBLEMS_DB: ${{ secrets.NOTION_PROBLEMS_DB }}
+          NOTION_LISTS_DB: ${{ secrets.NOTION_LISTS_DB }}
+          NOTION_CHALLENGES_DB: ${{ secrets.NOTION_CHALLENGES_DB }}
         run: python .github/scripts/sync_notion.py
