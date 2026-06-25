@@ -185,16 +185,16 @@ def parse_comments(filepath):
                     break
                 if "topic:" in line:
                     meta["topic"] = [t.strip() for t in line.split("topic:")[1].split(",")]
+                elif "runtime:" in line:
+                    meta["runtime"] = line.split("runtime:")[1].strip()
+                elif "memory:" in line:
+                    meta["memory"] = line.split("memory:")[1].strip()
                 elif "time:" in line:
                     meta["time"] = line.split("time:")[1].strip()
                 elif "space:" in line:
                     meta["space"] = line.split("space:")[1].strip()
                 elif "spent:" in line:
                     meta["spent"] = int(line.split("spent:")[1].strip())
-                elif "runtime:" in line:
-                    meta["runtime"] = line.split("runtime:")[1].strip()
-                elif "memory:" in line:
-                    meta["memory"] = line.split("memory:")[1].strip()
     except OSError:
         pass
     return meta
@@ -220,7 +220,8 @@ def get_lists(number):
 
 def find_existing_page(number, language):
     """Look up a page with the same problem Number AND Language. Returns
-    the page id if found, else None."""
+    the full page object if found (so callers can read its current
+    property values), else None."""
     url = f"https://api.notion.com/v1/databases/{PROBLEMS_DB}/query"
     res = requests.post(url, headers=HEADERS, json={
         "filter": {
@@ -234,7 +235,37 @@ def find_existing_page(number, language):
         print(f"⚠️  Lookup failed for #{number} ({language}): {res.text}")
         return None
     results = res.json().get("results", [])
-    return results[0]["id"] if results else None
+    return results[0] if results else None
+
+
+def get_number_property(page, name):
+    prop = page.get("properties", {}).get(name) or {}
+    return prop.get("number") or 0
+
+
+def build_update_properties(meta, existing_page):
+    """Runtime/Memory/Time Complexity/Space Complexity always overwrite with
+    the latest push; Time Spent accumulates onto the page's current total."""
+    properties = {}
+    if meta["time"]:
+        properties["Time Complexity"] = {"select": {"name": meta["time"]}}
+    if meta["space"]:
+        properties["Space Complexity"] = {"select": {"name": meta["space"]}}
+    if meta["runtime"]:
+        properties["Runtime"] = {"rich_text": [{"text": {"content": meta["runtime"]}}]}
+    if meta["memory"]:
+        properties["Memory"] = {"rich_text": [{"text": {"content": meta["memory"]}}]}
+    if meta["spent"]:
+        properties["Time Spent"] = {"number": get_number_property(existing_page, "Time Spent") + meta["spent"]}
+    return properties
+
+
+def update_page_properties(page_id, properties):
+    url = f"https://api.notion.com/v1/pages/{page_id}"
+    res = requests.patch(url, headers=HEADERS, json={"properties": properties})
+    if res.status_code != 200:
+        print(f"❌ Failed to update properties: {res.text}")
+    return res.status_code == 200
 
 
 def add_to_notion(number, title, difficulty, language, meta, topics=None):
@@ -390,9 +421,13 @@ def main():
         number, title, difficulty = parsed
         language = get_language(filepath)
 
-        existing_page_id = find_existing_page(number, language)
-        if existing_page_id:
-            append_solution_block(existing_page_id, filepath, language)
+        existing_page = find_existing_page(number, language)
+        if existing_page:
+            meta = parse_comments(filepath)
+            update_properties = build_update_properties(meta, existing_page)
+            if update_properties:
+                update_page_properties(existing_page["id"], update_properties)
+            append_solution_block(existing_page["id"], filepath, language)
             print(f"🔄 Updated: {number:04d}. {title} ({language})")
             continue
 

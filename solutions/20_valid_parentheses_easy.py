@@ -6,6 +6,8 @@
 # time: O(n)
 # space: O(n)
 # spent: 16
+# runtime: 45ms
+# memory: 16.2MB
 
 # @lc code=start
 class Solution:
