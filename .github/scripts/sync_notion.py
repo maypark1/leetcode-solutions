@@ -426,6 +426,10 @@ def main():
         files = [line.strip() for line in f if line.strip()]
 
     for filepath in files:
+        if not os.path.exists(filepath):
+            print(f"⚠️  Skipped (deleted): {filepath}")
+            continue
+
         parsed = parse_filename(filepath)
         if not parsed:
             print(f"⚠️  Skipped: {filepath}")
