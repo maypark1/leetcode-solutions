@@ -16,6 +16,13 @@ def normalize_uuid(raw):
 
 
 PROBLEMS_DB = normalize_uuid(os.environ["NOTION_PROBLEMS_DB"])
+if len(PROBLEMS_DB.replace("-", "")) != 32:
+    raise SystemExit(
+        f"NOTION_PROBLEMS_DB is missing or malformed: {PROBLEMS_DB!r}. "
+        "Check that it's set as a repository secret under Settings > Secrets "
+        "and variables > Actions (an empty value means the secret name doesn't "
+        "match or it's an Environment secret the job can't see)."
+    )
 
 HEADERS = {
     "Authorization": f"Bearer {NOTION_TOKEN}",
@@ -192,6 +199,8 @@ def add_to_notion(number, title, difficulty, filepath, meta, topics=None):
 
 
 def main():
+    print(f"🔑 PROBLEMS_DB: len={len(PROBLEMS_DB)} {PROBLEMS_DB[:4]}...{PROBLEMS_DB[-4:]}")
+
     with open("changed_files.txt") as f:
         files = [line.strip() for line in f if line.strip()]
 
