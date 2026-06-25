@@ -107,17 +107,34 @@ def get_leetcode_metadata(number):
         return None
 
 
-def html_to_paragraph_blocks(html):
-    """Best-effort conversion of LeetCode's problem HTML into plain-text
-    paragraph blocks. Strips all markup; lists become '- ' prefixed lines."""
+def html_to_description_blocks(html):
+    """Best-effort conversion of LeetCode's problem HTML into a mix of
+    heading3/code/bulleted_list_item/paragraph blocks."""
     text = re.sub(r"<br\s*/?>", "\n", html)
     text = re.sub(r"<li[^>]*>", "\n- ", text)
     text = re.sub(r"</li>", "", text)
     text = re.sub(r"</p>", "\n\n", text)
+    text = re.sub(r"<pre>", "\n\n", text)
+    text = re.sub(r"</pre>", "\n\n", text)
     text = re.sub(r"<[^>]+>", "", text)
     text = unescape(text)
-    paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
-    return [paragraph_block(p) for p in paragraphs]
+
+    blocks = []
+    for chunk in (c.strip() for c in text.split("\n\n")):
+        if not chunk:
+            continue
+        lines = [l.strip() for l in chunk.split("\n") if l.strip()]
+        if len(lines) == 1 and re.match(r"^Example\s+\d+:?$", lines[0], re.IGNORECASE):
+            blocks.append(heading3_block(lines[0]))
+        elif chunk.rstrip(":") == "Constraints":
+            blocks.append(heading3_block("Constraints:"))
+        elif re.match(r"^(Input|Output)\s*:", lines[0], re.IGNORECASE):
+            blocks.append(code_block(chunk, "Plain Text"))
+        elif all(l.startswith("- ") for l in lines):
+            blocks.extend(bulleted_list_item_block(l[2:].strip()) for l in lines)
+        else:
+            blocks.append(paragraph_block(chunk))
+    return blocks
 
 
 def get_leetcode_description(slug):
@@ -140,7 +157,7 @@ def get_leetcode_description(slug):
         )
         res.raise_for_status()
         html = res.json()["data"]["question"]["content"]
-        return html_to_paragraph_blocks(html) if html else []
+        return html_to_description_blocks(html) if html else []
     except (requests.RequestException, KeyError, TypeError):
         return []
 
@@ -281,6 +298,23 @@ def heading2_block(text):
     }
 
 
+def heading3_block(text):
+    return {
+        "object": "block",
+        "type": "heading_3",
+        "heading_3": {"rich_text": [{"type": "text", "text": {"content": text}}]},
+    }
+
+
+def bulleted_list_item_block(text):
+    rich_text = [{"type": "text", "text": {"content": c}} for c in chunk_text(text)] if text else []
+    return {"object": "block", "type": "bulleted_list_item", "bulleted_list_item": {"rich_text": rich_text}}
+
+
+def divider_block():
+    return {"object": "block", "type": "divider", "divider": {}}
+
+
 def code_block(text, language):
     notion_language = NOTION_CODE_LANGUAGE.get(language, "plain text")
     return {
@@ -309,28 +343,35 @@ def read_solution(filepath):
         return f.read()
 
 
-def append_solution_block(page_id, filepath, language):
-    """Existing page, same Number + Language: append only a new solution block."""
-    blocks = [
+def strip_lc_comments(code):
+    """Remove vscode-leetcode '@lc ...' marker comment lines."""
+    return "\n".join(line for line in code.splitlines() if "@lc" not in line)
+
+
+def solution_and_notes_blocks(filepath, language):
+    code = strip_lc_comments(read_solution(filepath))
+    return [
         heading2_block("💻 My Solution"),
-        code_block(read_solution(filepath), language),
+        code_block(code, language),
+        heading3_block("📝 Approach"),
+        paragraph_block(),
+        heading3_block("💡 Key Insight"),
+        paragraph_block(),
+        heading3_block("🚧 Stuck Point"),
+        paragraph_block(),
     ]
+
+
+def append_solution_block(page_id, filepath, language):
+    """Existing page, same Number + Language: append a divider then a fresh solution+notes section."""
+    blocks = [divider_block()] + solution_and_notes_blocks(filepath, language)
     append_blocks(page_id, blocks)
 
 
 def append_new_page_blocks(page_id, filepath, language, slug):
     """New page: problem description, solution, and empty notes sections."""
     blocks = get_leetcode_description(slug) if slug else []
-    blocks += [
-        heading2_block("💻 My Solution"),
-        code_block(read_solution(filepath), language),
-        heading2_block("📝 Approach"),
-        paragraph_block(),
-        heading2_block("💡 Key Insight"),
-        paragraph_block(),
-        heading2_block("🚧 Stuck Point"),
-        paragraph_block(),
-    ]
+    blocks += solution_and_notes_blocks(filepath, language)
     append_blocks(page_id, blocks)
 
 
