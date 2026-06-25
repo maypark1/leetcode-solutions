@@ -3,6 +3,8 @@ name: Sync to Notion
 on:
   push:
     branches: [main]
+    paths:
+      - 'solutions/**'
 
 
 jobs:
