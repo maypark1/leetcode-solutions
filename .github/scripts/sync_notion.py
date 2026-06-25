@@ -2,6 +2,7 @@ import os
 import re
 import requests
 from datetime import datetime, timedelta
+from html import unescape
 
 NOTION_TOKEN = os.environ["NOTION_TOKEN"]
 
@@ -30,6 +31,15 @@ HEADERS = {
     "Notion-Version": "2022-06-28"
 }
 
+NOTION_CODE_LANGUAGE = {
+    "Python": "python",
+    "C++": "c++",
+    "Java": "java",
+    "JavaScript": "javascript",
+    "TypeScript": "typescript",
+    "C": "c",
+}
+
 NEETCODE_150 = [
     1, 2, 3, 11, 15, 17, 19, 20, 21, 22, 23, 25, 33, 36, 39, 40, 42, 43, 45,
     46, 48, 49, 51, 53, 54, 55, 56, 57, 62, 67, 70, 72, 73, 74, 75, 76, 78,
@@ -53,7 +63,7 @@ BLIND_75 = [
 
 
 def get_leetcode_metadata(number):
-    """Fetch the canonical title/difficulty/topics for a problem from
+    """Fetch the canonical title/difficulty/topics/slug for a problem from
     LeetCode's GraphQL API. Returns None on any failure so callers fall
     back to filename-derived metadata."""
     url = "https://leetcode.com/graphql"
@@ -89,11 +99,50 @@ def get_leetcode_metadata(number):
         q = questions[0]
         return {
             "title": q["title"],
+            "slug": q["titleSlug"],
             "difficulty": q["difficulty"],
             "topics": [t["name"] for t in q["topicTags"]],
         }
     except (requests.RequestException, KeyError, ValueError, TypeError):
         return None
+
+
+def html_to_paragraph_blocks(html):
+    """Best-effort conversion of LeetCode's problem HTML into plain-text
+    paragraph blocks. Strips all markup; lists become '- ' prefixed lines."""
+    text = re.sub(r"<br\s*/?>", "\n", html)
+    text = re.sub(r"<li[^>]*>", "\n- ", text)
+    text = re.sub(r"</li>", "", text)
+    text = re.sub(r"</p>", "\n\n", text)
+    text = re.sub(r"<[^>]+>", "", text)
+    text = unescape(text)
+    paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
+    return [paragraph_block(p) for p in paragraphs]
+
+
+def get_leetcode_description(slug):
+    """Fetch the problem statement for a slug and convert it to paragraph
+    blocks. Returns [] on any failure."""
+    url = "https://leetcode.com/graphql"
+    query = """
+    query questionContent($titleSlug: String!) {
+        question(titleSlug: $titleSlug) {
+            content
+        }
+    }
+    """
+    try:
+        res = requests.post(
+            url,
+            json={"query": query, "variables": {"titleSlug": slug}},
+            headers={"Content-Type": "application/json"},
+            timeout=10,
+        )
+        res.raise_for_status()
+        html = res.json()["data"]["question"]["content"]
+        return html_to_paragraph_blocks(html) if html else []
+    except (requests.RequestException, KeyError, TypeError):
+        return []
 
 
 def parse_filename(filepath):
@@ -110,7 +159,7 @@ def parse_filename(filepath):
 
 def parse_comments(filepath):
     """파일 상단 주석에서 메타데이터 파싱"""
-    meta = {"topic": [], "time": "", "space": "", "spent": None}
+    meta = {"topic": [], "time": "", "space": "", "spent": None, "runtime": "", "memory": ""}
     try:
         with open(filepath, encoding="utf-8", errors="ignore") as f:
             for line in f:
@@ -125,6 +174,10 @@ def parse_comments(filepath):
                     meta["space"] = line.split("space:")[1].strip()
                 elif "spent:" in line:
                     meta["spent"] = int(line.split("spent:")[1].strip())
+                elif "runtime:" in line:
+                    meta["runtime"] = line.split("runtime:")[1].strip()
+                elif "memory:" in line:
+                    meta["memory"] = line.split("memory:")[1].strip()
     except OSError:
         pass
     return meta
@@ -148,21 +201,28 @@ def get_lists(number):
     return lists
 
 
-def problem_exists(number):
+def find_existing_page(number, language):
+    """Look up a page with the same problem Number AND Language. Returns
+    the page id if found, else None."""
     url = f"https://api.notion.com/v1/databases/{PROBLEMS_DB}/query"
     res = requests.post(url, headers=HEADERS, json={
-        "filter": {"property": "Number", "number": {"equals": number}}
+        "filter": {
+            "and": [
+                {"property": "Number", "number": {"equals": number}},
+                {"property": "Language", "select": {"equals": language}},
+            ]
+        }
     })
     if res.status_code != 200:
-        print(f"⚠️  Lookup failed for #{number}: {res.text}")
-        return False
-    return len(res.json().get("results", [])) > 0
+        print(f"⚠️  Lookup failed for #{number} ({language}): {res.text}")
+        return None
+    results = res.json().get("results", [])
+    return results[0]["id"] if results else None
 
 
-def add_to_notion(number, title, difficulty, filepath, meta, topics=None):
+def add_to_notion(number, title, difficulty, language, meta, topics=None):
     url = "https://api.notion.com/v1/pages"
     leetcode_url = f"https://leetcode.com/problems/{title.lower().replace(' ', '-')}/"
-    language = get_language(filepath)
     all_topics = sorted(set((topics or []) + meta["topic"]))
     lists = get_lists(number)
 
@@ -187,6 +247,10 @@ def add_to_notion(number, title, difficulty, filepath, meta, topics=None):
         properties["Space Complexity"] = {"select": {"name": meta["space"]}}
     if meta["spent"]:
         properties["Time Spent"] = {"number": meta["spent"]}
+    if meta["runtime"]:
+        properties["Runtime"] = {"rich_text": [{"text": {"content": meta["runtime"]}}]}
+    if meta["memory"]:
+        properties["Memory"] = {"rich_text": [{"text": {"content": meta["memory"]}}]}
 
     res = requests.post(url, headers=HEADERS, json={
         "parent": {"database_id": PROBLEMS_DB},
@@ -195,8 +259,79 @@ def add_to_notion(number, title, difficulty, filepath, meta, topics=None):
 
     if res.status_code == 200:
         print(f"✅ Added: {number:04d}. {title} ({difficulty})")
-    else:
-        print(f"❌ Failed: {res.text}")
+        return res.json()["id"]
+    print(f"❌ Failed: {res.text}")
+    return None
+
+
+def chunk_text(text, size=2000):
+    return [text[i:i + size] for i in range(0, len(text), size)] or [""]
+
+
+def paragraph_block(text=""):
+    rich_text = [{"type": "text", "text": {"content": c}} for c in chunk_text(text)] if text else []
+    return {"object": "block", "type": "paragraph", "paragraph": {"rich_text": rich_text}}
+
+
+def heading2_block(text):
+    return {
+        "object": "block",
+        "type": "heading_2",
+        "heading_2": {"rich_text": [{"type": "text", "text": {"content": text}}]},
+    }
+
+
+def code_block(text, language):
+    notion_language = NOTION_CODE_LANGUAGE.get(language, "plain text")
+    return {
+        "object": "block",
+        "type": "code",
+        "code": {
+            "rich_text": [{"type": "text", "text": {"content": c}} for c in chunk_text(text)],
+            "language": notion_language,
+        },
+    }
+
+
+def append_blocks(page_id, blocks):
+    """Append children to a page, chunked to Notion's 100-block-per-request limit."""
+    url = f"https://api.notion.com/v1/blocks/{page_id}/children"
+    for i in range(0, len(blocks), 100):
+        res = requests.patch(url, headers=HEADERS, json={"children": blocks[i:i + 100]})
+        if res.status_code != 200:
+            print(f"❌ Failed to append blocks: {res.text}")
+            return False
+    return True
+
+
+def read_solution(filepath):
+    with open(filepath, encoding="utf-8", errors="ignore") as f:
+        return f.read()
+
+
+def append_solution_block(page_id, filepath, language):
+    """Existing page, same Number + Language: append only a new solution block."""
+    blocks = [
+        heading2_block("💻 My Solution"),
+        code_block(read_solution(filepath), language),
+    ]
+    append_blocks(page_id, blocks)
+
+
+def append_new_page_blocks(page_id, filepath, language, slug):
+    """New page: problem description, solution, and empty notes sections."""
+    blocks = get_leetcode_description(slug) if slug else []
+    blocks += [
+        heading2_block("💻 My Solution"),
+        code_block(read_solution(filepath), language),
+        heading2_block("📝 Approach"),
+        paragraph_block(),
+        heading2_block("💡 Key Insight"),
+        paragraph_block(),
+        heading2_block("🚧 Stuck Point"),
+        paragraph_block(),
+    ]
+    append_blocks(page_id, blocks)
 
 
 def main():
@@ -212,17 +347,24 @@ def main():
             continue
 
         number, title, difficulty = parsed
-        if problem_exists(number):
-            print(f"⏭️  Already exists: {number:04d}. {title}")
+        language = get_language(filepath)
+
+        existing_page_id = find_existing_page(number, language)
+        if existing_page_id:
+            append_solution_block(existing_page_id, filepath, language)
+            print(f"🔄 Updated: {number:04d}. {title} ({language})")
             continue
 
         remote = get_leetcode_metadata(number)
         if remote:
             title, difficulty = remote["title"], remote["difficulty"]
         topics = remote["topics"] if remote else []
+        slug = remote["slug"] if remote else None
 
         meta = parse_comments(filepath)
-        add_to_notion(number, title, difficulty, filepath, meta, topics)
+        page_id = add_to_notion(number, title, difficulty, language, meta, topics)
+        if page_id:
+            append_new_page_blocks(page_id, filepath, language, slug)
 
 
 if __name__ == "__main__":
