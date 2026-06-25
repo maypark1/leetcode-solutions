@@ -1,7 +1,7 @@
 import os
 import re
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta
 
 NOTION_TOKEN = os.environ["NOTION_TOKEN"]
 
@@ -167,19 +167,20 @@ def add_to_notion(number, title, difficulty, filepath, meta, topics=None):
     lists = get_lists(number)
 
     properties = {
-        "Problem":          {"title": [{"text": {"content": f"{number:04d}. {title}"}}]},
-        "Number":           {"number": number},
-        "LeetCode URL":     {"url": leetcode_url},
-        "Date Solved":      {"date": {"start": datetime.now().strftime("%Y-%m-%d")}},
-        "Difficulty Level": {"select": {"name": difficulty}},
-        "Language":         {"select": {"name": language}},
-        "Problem Progress": {"select": {"name": "Completed"}},
+        "Name":         {"title": [{"text": {"content": f"{number:04d}. {title}"}}]},
+        "Number":       {"number": number},
+        "LeetCode URL": {"url": leetcode_url},
+        "Date Solved":  {"date": {"start": datetime.now().strftime("%Y-%m-%d")}},
+        "Difficulty":   {"select": {"name": difficulty}},
+        "Language":     {"select": {"name": language}},
+        "Status":       {"select": {"name": "Solved"}},
+        "Review Date":  {"date": {"start": (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d")}},
     }
 
-    if all_topics:
-        properties["Topic"] = {"multi_select": [{"name": t} for t in all_topics]}
     if lists:
         properties["Lists"] = {"multi_select": [{"name": l} for l in lists]}
+    if all_topics:
+        properties["Tags"] = {"multi_select": [{"name": t} for t in all_topics]}
     if meta["time"]:
         properties["Time Complexity"] = {"select": {"name": meta["time"]}}
     if meta["space"]:
