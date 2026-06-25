@@ -5,7 +5,7 @@
 #
 # time: O(n)
 # space: O(n)
-# spent: 15
+# spent: 16
 
 # @lc code=start
 class Solution:
