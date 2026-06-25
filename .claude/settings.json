@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \"import ast; ast.parse\\(open\\('.github/scripts/sync_notion.py', encoding='utf-8'\\).read\\(\\)\\)\")",
+      "Bash(python3 -c \"import ast; ast.parse\\(open\\('.github/scripts/sync_notion.py', encoding='utf-8'\\).read\\(\\)\\)\")",
+      "Bash(python -c ' *)"
+    ]
+  }
+}
