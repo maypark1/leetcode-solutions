@@ -184,7 +184,7 @@ def add_to_notion(number, title, difficulty, filepath, meta, topics=None):
     if meta["time"]:
         properties["Time Complexity"] = {"select": {"name": meta["time"]}}
     if meta["space"]:
-        properties["Space Complexity"] = {"multi_select": [{"name": meta["space"]}]}
+        properties["Space Complexity"] = {"select": {"name": meta["space"]}}
     if meta["spent"]:
         properties["Time Spent"] = {"number": meta["spent"]}
 
