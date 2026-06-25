@@ -112,7 +112,7 @@ def parse_comments(filepath):
     """파일 상단 주석에서 메타데이터 파싱"""
     meta = {"topic": [], "time": "", "space": "", "spent": None}
     try:
-        with open(filepath) as f:
+        with open(filepath, encoding="utf-8", errors="ignore") as f:
             for line in f:
                 line = line.strip()
                 if not line.startswith("#"):
