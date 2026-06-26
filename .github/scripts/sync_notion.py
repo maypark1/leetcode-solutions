@@ -374,15 +374,19 @@ def read_solution(filepath):
         return f.read()
 
 
+LC_TITLE_LINE = re.compile(r"^#\s*\[\d+\]")
+
+
 def clean_solution_code(code):
-    """Strip @lc marker lines, then drop the leading comment/metadata block
-    (vscode-leetcode header + our time/space/spent/runtime/memory comments),
-    keeping only the actual solution code onward."""
-    lines = [line for line in code.splitlines() if "@lc" not in line]
-    while lines and (not lines[0].strip() or lines[0].lstrip().startswith("#")):
-        lines.pop(0)
-    while lines and not lines[-1].strip():
-        lines.pop()
+    """Drop @lc marker lines, bare '#' divider lines, and the '# [N] Title'
+    header line. Everything else - meta comments and all actual code - is
+    kept exactly as written, including original blank-line spacing."""
+    lines = []
+    for line in code.splitlines():
+        stripped = line.strip()
+        if "@lc" in line or stripped == "#" or LC_TITLE_LINE.match(stripped):
+            continue
+        lines.append(line)
     return "\n".join(lines)
 
 
