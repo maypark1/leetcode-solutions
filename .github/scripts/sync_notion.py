@@ -17,14 +17,21 @@ def normalize_uuid(raw):
     return f"{value[0:8]}-{value[8:12]}-{value[12:16]}-{value[16:20]}-{value[20:32]}"
 
 
-PROBLEMS_DB = normalize_uuid(os.environ["NOTION_PROBLEMS_DB"])
-if len(PROBLEMS_DB.replace("-", "")) != 32:
-    raise SystemExit(
-        f"NOTION_PROBLEMS_DB is missing or malformed: {PROBLEMS_DB!r}. "
-        "Check that it's set as a repository secret under Settings > Secrets "
-        "and variables > Actions (an empty value means the secret name doesn't "
-        "match or it's an Environment secret the job can't see)."
-    )
+def require_db_id(env_var):
+    value = normalize_uuid(os.environ[env_var])
+    if len(value.replace("-", "")) != 32:
+        raise SystemExit(
+            f"{env_var} is missing or malformed: {value!r}. "
+            "Check that it's set as a repository secret under Settings > Secrets "
+            "and variables > Actions (an empty value means the secret name doesn't "
+            "match or it's an Environment secret the job can't see)."
+        )
+    return value
+
+
+PROBLEMS_DB = require_db_id("NOTION_PROBLEMS_DB")
+TOPICS_DB = require_db_id("NOTION_TOPICS_DB")
+LISTS_DB = require_db_id("NOTION_LISTS_DB")
 
 HEADERS = {
     "Authorization": f"Bearer {NOTION_TOKEN}",
@@ -313,11 +320,105 @@ def update_page_properties(page_id, properties):
     return res.status_code == 200
 
 
-def add_to_notion(number, title, difficulty, language, meta, topics=None, companies=None):
+def find_db_row_by_name(database_id, name):
+    """Look up a row by its title property. Returns the full row object if
+    found, else None."""
+    url = f"https://api.notion.com/v1/databases/{database_id}/query"
+    res = requests.post(url, headers=HEADERS, json={
+        "filter": {"property": "Name", "title": {"equals": name}}
+    })
+    if res.status_code != 200:
+        print(f"⚠️  Lookup failed for {name!r}: {res.text}")
+        return None
+    results = res.json().get("results", [])
+    return results[0] if results else None
+
+
+def create_db_row(database_id, properties):
+    """Create a row and return the full created row object (same shape as
+    a query result), so callers can use it immediately for relation linking."""
+    url = "https://api.notion.com/v1/pages"
+    res = requests.post(url, headers=HEADERS, json={
+        "parent": {"database_id": database_id},
+        "properties": properties,
+    })
+    if res.status_code != 200:
+        print(f"❌ Failed to create row {properties.get('Name')!r}: {res.text}")
+        return None
+    return res.json()
+
+
+def get_full_relation_ids(page_id, relation_prop):
+    """Relation arrays embedded in a page object are capped at 25 items;
+    paginate the dedicated property endpoint to fetch the rest so we never
+    drop existing links when we rewrite the relation below."""
+    ids = [r["id"] for r in relation_prop.get("relation", [])]
+    has_more = relation_prop.get("has_more", False)
+    cursor = relation_prop.get("next_cursor")
+    property_id = relation_prop["id"]
+    while has_more:
+        url = f"https://api.notion.com/v1/pages/{page_id}/properties/{property_id}"
+        res = requests.get(url, headers=HEADERS, params={"start_cursor": cursor} if cursor else {})
+        if res.status_code != 200:
+            print(f"⚠️  Failed to paginate relation: {res.text}")
+            break
+        data = res.json()
+        ids.extend(r["relation"]["id"] for r in data.get("results", []))
+        has_more = data.get("has_more", False)
+        cursor = data.get("next_cursor")
+    return ids
+
+
+def link_problem_to_row(row, problem_page_id):
+    """Add `problem_page_id` to the row's Problems relation and bump its
+    Solved count by 1. No-op if already linked (avoids double-counting)."""
+    relation_ids = get_full_relation_ids(row["id"], row["properties"]["Problems"])
+    if problem_page_id in relation_ids:
+        return
+    relation_ids.append(problem_page_id)
+    url = f"https://api.notion.com/v1/pages/{row['id']}"
+    res = requests.patch(url, headers=HEADERS, json={
+        "properties": {
+            "Problems": {"relation": [{"id": rid} for rid in relation_ids]},
+            "Solved": {"number": get_number_property(row, "Solved") + 1},
+        }
+    })
+    if res.status_code != 200:
+        print(f"❌ Failed to link problem to row {row['id']}: {res.text}")
+
+
+def sync_topics(tags, problem_page_id):
+    for tag in tags:
+        row = find_db_row_by_name(TOPICS_DB, tag)
+        if not row:
+            row = create_db_row(TOPICS_DB, {
+                "Name": {"title": [{"text": {"content": tag}}]},
+                "Total": {"number": 0},
+                "Solved": {"number": 0},
+            })
+        if row:
+            link_problem_to_row(row, problem_page_id)
+
+
+LIST_TOTALS = {"NeetCode 150": 150, "Blind 75": 75}
+
+
+def sync_lists(list_names, problem_page_id):
+    for name in list_names:
+        row = find_db_row_by_name(LISTS_DB, name)
+        if not row:
+            row = create_db_row(LISTS_DB, {
+                "Name": {"title": [{"text": {"content": name}}]},
+                "Total": {"number": LIST_TOTALS.get(name, 0)},
+                "Solved": {"number": 0},
+            })
+        if row:
+            link_problem_to_row(row, problem_page_id)
+
+
+def add_to_notion(number, title, difficulty, language, meta, all_topics, lists, companies=None):
     url = "https://api.notion.com/v1/pages"
     leetcode_url = f"https://leetcode.com/problems/{title.lower().replace(' ', '-')}/"
-    all_topics = sorted(set((topics or []) + meta["topic"]))
-    lists = get_lists(number)
 
     properties = {
         "Name":         {"title": [{"text": {"content": f"{number:04d}. {title}"}}]},
@@ -507,9 +608,14 @@ def main():
         companies = get_leetcode_companies(slug) if slug else []
 
         meta = parse_comments(filepath)
-        page_id = add_to_notion(number, title, difficulty, language, meta, topics, companies)
+        all_topics = sorted(set(topics + meta["topic"]))
+        lists = get_lists(number)
+
+        page_id = add_to_notion(number, title, difficulty, language, meta, all_topics, lists, companies)
         if page_id:
             append_new_page_blocks(page_id, filepath, language, slug, meta)
+            sync_topics(all_topics, page_id)
+            sync_lists(lists, page_id)
 
 
 if __name__ == "__main__":
