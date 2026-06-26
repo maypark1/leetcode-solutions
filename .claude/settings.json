@@ -4,7 +4,8 @@
       "Bash(python -c \"import ast; ast.parse\\(open\\('.github/scripts/sync_notion.py', encoding='utf-8'\\).read\\(\\)\\)\")",
       "Bash(python3 -c \"import ast; ast.parse\\(open\\('.github/scripts/sync_notion.py', encoding='utf-8'\\).read\\(\\)\\)\")",
       "Bash(python -c ' *)",
-      "Bash(gh secret *)"
+      "Bash(gh secret *)",
+      "Bash(PYTHONIOENCODING=utf-8 NOTION_TOKEN=x NOTION_PROBLEMS_DB=38a7136e-1872-8005-a68d-e99ae289d8c1 python -c ' *)"
     ]
   }
 }

@@ -28,5 +28,6 @@ bool isValid(char* s) {
     }
     return top == -1;
     sdfsdf
+    sadasdfa
 }
 // @lc code=end

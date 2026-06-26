@@ -1,3 +1,4 @@
+import json
 import os
 import re
 import requests
@@ -162,6 +163,36 @@ def get_leetcode_description(slug):
         return []
 
 
+def get_leetcode_companies(slug):
+    """Fetch company tags for a slug. This is a LeetCode premium-only
+    field, so it returns [] (not an error) without an authenticated
+    premium session - the sync just won't have company data in that case."""
+    url = "https://leetcode.com/graphql"
+    query = """
+    query companyTags($titleSlug: String!) {
+        question(titleSlug: $titleSlug) {
+            companyTagStats
+        }
+    }
+    """
+    try:
+        res = requests.post(
+            url,
+            json={"query": query, "variables": {"titleSlug": slug}},
+            headers={"Content-Type": "application/json"},
+            timeout=10,
+        )
+        res.raise_for_status()
+        raw = res.json()["data"]["question"]["companyTagStats"]
+        if not raw:
+            return []
+        stats = json.loads(raw)
+        companies = {c["name"] for bucket in stats.values() for c in bucket}
+        return sorted(companies)
+    except (requests.RequestException, KeyError, TypeError, ValueError):
+        return []
+
+
 def parse_filename(filepath):
     """0042_trapping-rain-water_hard.py → (42, 'Trapping Rain Water', 'Hard')"""
     filename = os.path.basename(filepath)
@@ -282,7 +313,7 @@ def update_page_properties(page_id, properties):
     return res.status_code == 200
 
 
-def add_to_notion(number, title, difficulty, language, meta, topics=None):
+def add_to_notion(number, title, difficulty, language, meta, topics=None, companies=None):
     url = "https://api.notion.com/v1/pages"
     leetcode_url = f"https://leetcode.com/problems/{title.lower().replace(' ', '-')}/"
     all_topics = sorted(set((topics or []) + meta["topic"]))
@@ -295,7 +326,7 @@ def add_to_notion(number, title, difficulty, language, meta, topics=None):
         "Date Solved":  {"date": {"start": datetime.now().strftime("%Y-%m-%d")}},
         "Difficulty":   {"select": {"name": difficulty}},
         "Language":     {"select": {"name": language}},
-        "Status":       {"select": {"name": "Solved"}},
+        "Status":       {"select": {"name": "Accepted"}},
         "Review Date":  {"date": {"start": (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d")}},
     }
 
@@ -303,6 +334,8 @@ def add_to_notion(number, title, difficulty, language, meta, topics=None):
         properties["Lists"] = {"multi_select": [{"name": l} for l in lists]}
     if all_topics:
         properties["Tags"] = {"multi_select": [{"name": t} for t in all_topics]}
+    if companies:
+        properties["Company"] = {"multi_select": [{"name": c} for c in companies]}
     if meta["time"]:
         properties["Time Complexity"] = {"select": {"name": meta["time"]}}
     if meta["space"]:
@@ -471,9 +504,10 @@ def main():
             title, difficulty = remote["title"], remote["difficulty"]
         topics = remote["topics"] if remote else []
         slug = remote["slug"] if remote else None
+        companies = get_leetcode_companies(slug) if slug else []
 
         meta = parse_comments(filepath)
-        page_id = add_to_notion(number, title, difficulty, language, meta, topics)
+        page_id = add_to_notion(number, title, difficulty, language, meta, topics, companies)
         if page_id:
             append_new_page_blocks(page_id, filepath, language, slug, meta)
 
