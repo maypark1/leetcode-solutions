@@ -174,14 +174,28 @@ def parse_filename(filepath):
     return number, title, difficulty
 
 
+COMMENT_PREFIXES = {
+    "py": "#", "rb": "#",
+    "c": "//", "cpp": "//", "java": "//", "js": "//", "ts": "//",
+    "go": "//", "rs": "//", "swift": "//", "kt": "//", "cs": "//",
+    "sql": "--",
+}
+
+
+def get_comment_prefix(filepath):
+    ext = filepath.rsplit(".", 1)[-1].lower()
+    return COMMENT_PREFIXES.get(ext, "#")
+
+
 def parse_comments(filepath):
     """파일 상단 주석에서 메타데이터 파싱"""
     meta = {"topic": [], "time": "", "space": "", "spent": None, "runtime": "", "memory": ""}
+    prefix = get_comment_prefix(filepath)
     try:
         with open(filepath, encoding="utf-8", errors="ignore") as f:
             for line in f:
                 line = line.strip()
-                if not line.startswith("#"):
+                if not line.startswith(prefix):
                     break
                 if "topic:" in line:
                     meta["topic"] = [t.strip() for t in line.split("topic:")[1].split(",")]
@@ -374,17 +388,17 @@ def read_solution(filepath):
         return f.read()
 
 
-LC_TITLE_LINE = re.compile(r"^#\s*\[\d+\]")
-
-
-def clean_solution_code(code):
-    """Drop @lc marker lines, bare '#' divider lines, and the '# [N] Title'
-    header line. Everything else - meta comments and all actual code - is
-    kept exactly as written, including original blank-line spacing."""
+def clean_solution_code(filepath, code):
+    """Drop @lc marker lines, bare divider lines, and the '[N] Title'
+    header line, using the comment style for the file's language.
+    Everything else - meta comments and all actual code - is kept exactly
+    as written, including original blank-line spacing."""
+    prefix = get_comment_prefix(filepath)
+    title_line = re.compile(rf"^{re.escape(prefix)}\s*\[\d+\]")
     lines = []
     for line in code.splitlines():
         stripped = line.strip()
-        if "@lc" in line or stripped == "#" or LC_TITLE_LINE.match(stripped):
+        if "@lc" in line or stripped == prefix or title_line.match(stripped):
             continue
         lines.append(line)
     return "\n".join(lines)
@@ -397,7 +411,7 @@ def solution_heading(meta):
 
 
 def solution_and_notes_blocks(filepath, language, meta):
-    code = clean_solution_code(read_solution(filepath))
+    code = clean_solution_code(filepath, read_solution(filepath))
     return [
         heading2_block(solution_heading(meta)),
         code_block(code, language),

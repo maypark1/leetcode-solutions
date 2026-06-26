@@ -27,5 +27,6 @@ bool isValid(char* s) {
         }
     }
     return top == -1;
+    sdfsdf
 }
 // @lc code=end
