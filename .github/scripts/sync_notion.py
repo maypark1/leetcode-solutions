@@ -30,6 +30,8 @@ def require_db_id(env_var):
 
 
 PROBLEMS_DB = require_db_id("NOTION_PROBLEMS_DB")
+CHALLENGES_DB = require_db_id("NOTION_CHALLENGES_DB")
+LEETCODE_USERNAME = os.environ["LEETCODE_USERNAME"]
 
 HEADERS = {
     "Authorization": f"Bearer {NOTION_TOKEN}",
@@ -66,6 +68,8 @@ BLIND_75 = [
     210, 212, 213, 217, 226, 230, 235, 238, 239, 242, 295, 300, 322, 323, 338,
     347, 371, 378, 416, 435, 438, 543, 547, 572, 647, 684, 704, 739, 743
 ]
+
+LIST_TOTALS = {"NeetCode 150": 150, "Blind 75": 75}
 
 
 def get_leetcode_metadata(number):
@@ -198,6 +202,32 @@ def get_leetcode_companies(slug):
         return []
 
 
+def get_leetcode_points(username):
+    """Fetch a user's LeetCode points. Returns None on any failure (e.g.
+    unknown username or the field not existing under this name)."""
+    url = "https://leetcode.com/graphql"
+    query = """
+    query userPoints($username: String!) {
+        matchedUser(username: $username) {
+            profile {
+                leetCodePoints
+            }
+        }
+    }
+    """
+    try:
+        res = requests.post(
+            url,
+            json={"query": query, "variables": {"username": username}},
+            headers={"Content-Type": "application/json"},
+            timeout=10,
+        )
+        res.raise_for_status()
+        return res.json()["data"]["matchedUser"]["profile"]["leetCodePoints"]
+    except (requests.RequestException, KeyError, TypeError, ValueError):
+        return None
+
+
 def parse_filename(filepath):
     """0042_trapping-rain-water_hard.py → (42, 'Trapping Rain Water', 'Hard')"""
     filename = os.path.basename(filepath)
@@ -316,6 +346,110 @@ def update_page_properties(page_id, properties):
     if res.status_code != 200:
         print(f"❌ Failed to update properties: {res.text}")
     return res.status_code == 200
+
+
+def query_problems_db(body):
+    """Paginate a Problems DB query, returning every matching row."""
+    url = f"https://api.notion.com/v1/databases/{PROBLEMS_DB}/query"
+    rows = []
+    cursor = None
+    while True:
+        payload = dict(body)
+        if cursor:
+            payload["start_cursor"] = cursor
+        res = requests.post(url, headers=HEADERS, json=payload)
+        if res.status_code != 200:
+            print(f"⚠️  Problems DB query failed: {res.text}")
+            return rows
+        data = res.json()
+        rows.extend(data.get("results", []))
+        if not data.get("has_more"):
+            return rows
+        cursor = data.get("next_cursor")
+
+
+def count_problems_total():
+    return len(query_problems_db({}))
+
+
+def count_problems_by_multiselect(property_name, value):
+    rows = query_problems_db({"filter": {"property": property_name, "multi_select": {"contains": value}}})
+    return len(rows)
+
+
+def get_solved_dates():
+    """All distinct 'Date Solved' values from Problems DB, as YYYY-MM-DD strings."""
+    dates = set()
+    for row in query_problems_db({}):
+        date_prop = (row.get("properties", {}).get("Date Solved") or {}).get("date")
+        if date_prop and date_prop.get("start"):
+            dates.add(date_prop["start"][:10])
+    return dates
+
+
+def current_streak(dates):
+    """Consecutive-day streak ending today, or yesterday if nothing has
+    been solved yet today (so the streak doesn't drop to 0 mid-day)."""
+    if not dates:
+        return 0
+    day = datetime.now().date()
+    if day.strftime("%Y-%m-%d") not in dates:
+        day -= timedelta(days=1)
+    streak = 0
+    while day.strftime("%Y-%m-%d") in dates:
+        streak += 1
+        day -= timedelta(days=1)
+    return streak
+
+
+def find_challenge_rows(challenge_type):
+    """Rows in the Challenges DB with the given Type."""
+    url = f"https://api.notion.com/v1/databases/{CHALLENGES_DB}/query"
+    rows = []
+    cursor = None
+    while True:
+        body = {"filter": {"property": "Type", "select": {"equals": challenge_type}}}
+        if cursor:
+            body["start_cursor"] = cursor
+        res = requests.post(url, headers=HEADERS, json=body)
+        if res.status_code != 200:
+            print(f"⚠️  Challenges DB lookup failed for Type={challenge_type!r}: {res.text}")
+            return rows
+        data = res.json()
+        rows.extend(data.get("results", []))
+        if not data.get("has_more"):
+            return rows
+        cursor = data.get("next_cursor")
+
+
+def get_title_text(row):
+    title_prop = (row.get("properties", {}).get("Name") or {}).get("title", [])
+    return "".join(t.get("plain_text", "") for t in title_prop)
+
+
+def update_challenges():
+    """Runs on every push, regardless of which files changed."""
+    points = get_leetcode_points(LEETCODE_USERNAME)
+    if points is not None:
+        for row in find_challenge_rows("Coin"):
+            update_page_properties(row["id"], {"Current": {"number": points}})
+
+    total = count_problems_total()
+    for row in find_challenge_rows("Count"):
+        update_page_properties(row["id"], {"Current": {"number": total}})
+
+    for row in find_challenge_rows("Completion"):
+        name = get_title_text(row)
+        goal = LIST_TOTALS.get(name, 0)
+        solved = count_problems_by_multiselect("Lists", name) if goal else 0
+        update_page_properties(row["id"], {
+            "Current": {"number": solved},
+            "Goal": {"number": goal},
+        })
+
+    streak = current_streak(get_solved_dates())
+    for row in find_challenge_rows("Streak"):
+        update_page_properties(row["id"], {"Current": {"number": streak}})
 
 
 def add_to_notion(number, title, difficulty, language, meta, all_topics, lists, companies=None):
@@ -534,6 +668,8 @@ def main():
         page_id = add_to_notion(number, title, difficulty, language, meta, all_topics, lists, companies)
         if page_id:
             append_new_page_blocks(page_id, filepath, language, slug, meta)
+
+    update_challenges()
 
 
 if __name__ == "__main__":

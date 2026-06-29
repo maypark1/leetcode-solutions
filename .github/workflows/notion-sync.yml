@@ -32,4 +32,6 @@ jobs:
         env:
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
           NOTION_PROBLEMS_DB: ${{ secrets.NOTION_PROBLEMS_DB }}
+          NOTION_CHALLENGES_DB: ${{ secrets.NOTION_CHALLENGES_DB }}
+          LEETCODE_USERNAME: ${{ secrets.LEETCODE_USERNAME }}
         run: python .github/scripts/sync_notion.py
