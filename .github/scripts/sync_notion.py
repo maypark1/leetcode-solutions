@@ -424,11 +424,25 @@ def read_solution(filepath):
         return f.read()
 
 
+def strip_block_comments(code):
+    """Remove /* ... */ block comments that are LeetCode boilerplate: the
+    @lc header block, and 'Definition for a ...' struct/node boilerplate.
+    User-written block comments are left alone."""
+    def replace(match):
+        body = match.group(0)
+        if "@lc" in body or re.search(r"Definition for", body, re.IGNORECASE):
+            return ""
+        return body
+    return re.sub(r"/\*.*?\*/", replace, code, flags=re.DOTALL)
+
+
 def clean_solution_code(filepath, code):
     """Drop @lc marker lines, bare divider lines, and the '[N] Title'
-    header line, using the comment style for the file's language.
+    header line, using the comment style for the file's language. Also
+    strips LeetCode's /* */ boilerplate (header block, struct definitions).
     Everything else - meta comments and all actual code - is kept exactly
     as written, including original blank-line spacing."""
+    code = strip_block_comments(code)
     prefix = get_comment_prefix(filepath)
     title_line = re.compile(rf"^{re.escape(prefix)}\s*\[\d+\]")
     lines = []
@@ -437,7 +451,8 @@ def clean_solution_code(filepath, code):
         if "@lc" in line or stripped == prefix or title_line.match(stripped):
             continue
         lines.append(line)
-    return "\n".join(lines)
+    cleaned = re.sub(r"\n{3,}", "\n\n", "\n".join(lines))
+    return cleaned.strip("\n")
 
 
 def solution_heading(meta):
