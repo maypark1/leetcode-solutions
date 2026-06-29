@@ -16,6 +16,8 @@
  *     TreeNode(int x, TreeNode *left, TreeNode *right) : val(x), left(left), right(right) {}
  * };
  * 
+ *runtime: 0ms
+ *memory: 18.98MB
  */
 class Solution {
 public:
