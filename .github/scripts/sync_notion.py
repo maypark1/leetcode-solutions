@@ -223,8 +223,13 @@ def get_leetcode_points(username):
             timeout=10,
         )
         res.raise_for_status()
-        return res.json()["data"]["matchedUser"]["profile"]["leetCodePoints"]
-    except (requests.RequestException, KeyError, TypeError, ValueError):
+        data = res.json()
+        if data.get("errors"):
+            print(f"⚠️  LeetCode points query returned errors: {data['errors']}")
+            return None
+        return data["data"]["matchedUser"]["profile"]["leetCodePoints"]
+    except (requests.RequestException, KeyError, TypeError, ValueError) as e:
+        print(f"⚠️  Failed to fetch LeetCode points: {e}")
         return None
 
 
@@ -429,25 +434,36 @@ def get_title_text(row):
 
 def update_challenges():
     """Runs on every push, regardless of which files changed."""
+    print("Updating challenges...")
+
     points = get_leetcode_points(LEETCODE_USERNAME)
     if points is not None:
+        print(f"Coin: {points} points")
         for row in find_challenge_rows("Coin"):
             update_page_properties(row["id"], {"Current": {"number": points}})
+    else:
+        print("⚠️  Coin: failed to fetch LeetCode points, skipping")
 
     total = count_problems_total()
+    print(f"Count: {total} problems")
     for row in find_challenge_rows("Count"):
         update_page_properties(row["id"], {"Current": {"number": total}})
 
     for row in find_challenge_rows("Completion"):
         name = get_title_text(row)
         goal = LIST_TOTALS.get(name, 0)
-        solved = count_problems_by_multiselect("Lists", name) if goal else 0
+        if not goal:
+            print(f"⚠️  Completion: unknown list {name!r}, skipping")
+            continue
+        solved = count_problems_by_multiselect("Lists", name)
+        print(f"Completion: {name} {solved}/{goal}")
         update_page_properties(row["id"], {
             "Current": {"number": solved},
             "Goal": {"number": goal},
         })
 
     streak = current_streak(get_solved_dates())
+    print(f"Streak: {streak} days")
     for row in find_challenge_rows("Streak"):
         update_page_properties(row["id"], {"Current": {"number": streak}})
 
