@@ -32,7 +32,4 @@ jobs:
         env:
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
           NOTION_PROBLEMS_DB: ${{ secrets.NOTION_PROBLEMS_DB }}
-          NOTION_TOPICS_DB: ${{ secrets.NOTION_TOPICS_DB }}
-          NOTION_LISTS_DB: ${{ secrets.NOTION_LISTS_DB }}
-          NOTION_CHALLENGES_DB: ${{ secrets.NOTION_CHALLENGES_DB }}
         run: python .github/scripts/sync_notion.py
