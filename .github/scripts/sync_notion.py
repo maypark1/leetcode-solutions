@@ -232,7 +232,7 @@ def parse_comments(filepath):
             for line in f:
                 line = line.strip()
                 if not line.startswith(prefix):
-                    break
+                    continue
                 if "topic:" in line:
                     meta["topic"] = [t.strip() for t in line.split("topic:")[1].split(",")]
                 elif "runtime:" in line:
@@ -458,16 +458,10 @@ def clean_solution_code(filepath, code):
     return cleaned.strip("\n")
 
 
-def solution_heading(meta):
-    parts = [p for p in (meta.get("runtime"), meta.get("memory")) if p]
-    suffix = f" ({' | '.join(parts)})" if parts else ""
-    return f"💻 My Solution{suffix}"
-
-
-def solution_and_notes_blocks(filepath, language, meta):
+def solution_and_notes_blocks(filepath, language):
     code = clean_solution_code(filepath, read_solution(filepath))
     return [
-        heading2_block(solution_heading(meta)),
+        heading2_block("💻 My Solution"),
         code_block(code, language),
         heading3_block("📝 Approach"),
         paragraph_block(),
@@ -478,16 +472,16 @@ def solution_and_notes_blocks(filepath, language, meta):
     ]
 
 
-def append_solution_block(page_id, filepath, language, meta):
+def append_solution_block(page_id, filepath, language):
     """Existing page, same Number + Language: append a divider then a fresh solution+notes section."""
-    blocks = [divider_block()] + solution_and_notes_blocks(filepath, language, meta)
+    blocks = [divider_block()] + solution_and_notes_blocks(filepath, language)
     append_blocks(page_id, blocks)
 
 
-def append_new_page_blocks(page_id, filepath, language, slug, meta):
+def append_new_page_blocks(page_id, filepath, language, slug):
     """New page: problem description, solution, and empty notes sections."""
     blocks = get_leetcode_description(slug) if slug else []
-    blocks += solution_and_notes_blocks(filepath, language, meta)
+    blocks += solution_and_notes_blocks(filepath, language)
     append_blocks(page_id, blocks)
 
 
@@ -516,7 +510,7 @@ def main():
             update_properties = build_update_properties(meta, existing_page)
             if update_properties:
                 update_page_properties(existing_page["id"], update_properties)
-            append_solution_block(existing_page["id"], filepath, language, meta)
+            append_solution_block(existing_page["id"], filepath, language)
             print(f"🔄 Updated: {number:04d}. {title} ({language})")
             continue
 
@@ -533,7 +527,7 @@ def main():
 
         page_id = add_to_notion(number, title, difficulty, language, meta, all_topics, lists, companies)
         if page_id:
-            append_new_page_blocks(page_id, filepath, language, slug, meta)
+            append_new_page_blocks(page_id, filepath, language, slug)
 
 
 if __name__ == "__main__":
