@@ -20,6 +20,14 @@
  *memory: 18.98MB
  *
  */
+
+// time: O(n)
+// space: O(n)
+// runtime: 0ms
+// memory: 18.98MB
+// spent: 10
+
+ //
 class Solution {
 public:
     int maxDepth(TreeNode* root) {

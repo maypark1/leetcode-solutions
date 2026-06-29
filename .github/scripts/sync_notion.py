@@ -224,13 +224,15 @@ def get_comment_prefix(filepath):
 
 
 def parse_comments(filepath):
-    """파일 전체에서 메타데이터 주석을 파싱 (#, //, /* */, -- 등 주석 스타일과
-    무관하게 'key: value' 패턴만 보고 찾는다)"""
+    """파일 상단 주석에서 메타데이터 파싱"""
     meta = {"topic": [], "time": "", "space": "", "spent": None, "runtime": "", "memory": ""}
+    prefix = get_comment_prefix(filepath)
     try:
         with open(filepath, encoding="utf-8", errors="ignore") as f:
             for line in f:
                 line = line.strip()
+                if not line.startswith(prefix):
+                    break
                 if "topic:" in line:
                     meta["topic"] = [t.strip() for t in line.split("topic:")[1].split(",")]
                 elif "runtime:" in line:
@@ -422,21 +424,18 @@ def read_solution(filepath):
         return f.read()
 
 
-META_KEYS = ("topic:", "time:", "space:", "spent:", "runtime:", "memory:")
-
-
 def strip_block_comments(code):
     """Remove /* ... */ block comments that are LeetCode boilerplate: the
     @lc header block, and 'Definition for a ...' struct/node boilerplate.
-    Meta comment lines (time/space/spent/runtime/memory) are kept even if
-    they were written inside one of these blocks. User-written block
-    comments that aren't LeetCode boilerplate are left alone entirely."""
+    User-written block comments are left alone. Meta comments (time/space/
+    spent/runtime/memory) are only recognized as // (or #, --) line
+    comments - if written inside one of these blocks, they're removed
+    along with the rest of the block."""
     def replace(match):
         body = match.group(0)
-        if "@lc" not in body and not re.search(r"Definition for", body, re.IGNORECASE):
-            return body
-        kept = [line for line in body.splitlines() if any(key in line for key in META_KEYS)]
-        return "\n".join(kept)
+        if "@lc" in body or re.search(r"Definition for", body, re.IGNORECASE):
+            return ""
+        return body
     return re.sub(r"/\*.*?\*/", replace, code, flags=re.DOTALL)
 
 
