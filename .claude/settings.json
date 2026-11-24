@@ -8,7 +8,8 @@
       "Bash(PYTHONIOENCODING=utf-8 NOTION_TOKEN=x NOTION_PROBLEMS_DB=38a7136e-1872-8005-a68d-e99ae289d8c1 python -c ' *)",
       "Bash(PYTHONIOENCODING=utf-8 NOTION_TOKEN=x NOTION_PROBLEMS_DB=38a7136e-1872-8005-a68d-e99ae289d8c1 NOTION_TOPICS_DB=48a7136e-1872-8005-a68d-e99ae289d8c2 NOTION_LISTS_DB=58a7136e-1872-8005-a68d-e99ae289d8c3 python -c ' *)",
       "Bash(PYTHONIOENCODING=utf-8 NOTION_TOKEN=x NOTION_PROBLEMS_DB=38a7136e-1872-8005-a68d-e99ae289d8c1 NOTION_CHALLENGES_DB=48a7136e-1872-8005-a68d-e99ae289d8c2 LEETCODE_USERNAME=testuser python -c ' *)",
-      "Bash(PYTHONIOENCODING=utf-8 NOTION_TOKEN=x NOTION_PROBLEMS_DB=38a7136e-1872-8005-a68d-e99ae289d8c1 NOTION_CHALLENGES_DB=48a7136e-1872-8005-a68d-e99ae289d8c2 LEETCODE_USERNAME=baduser python -c ' *)"
+      "Bash(PYTHONIOENCODING=utf-8 NOTION_TOKEN=x NOTION_PROBLEMS_DB=38a7136e-1872-8005-a68d-e99ae289d8c1 NOTION_CHALLENGES_DB=48a7136e-1872-8005-a68d-e99ae289d8c2 LEETCODE_USERNAME=baduser python -c ' *)",
+      "Bash(curl -s -m 10 -X POST https://leetcode.com/graphql -H 'Content-Type: application/json' -d '{\"query\":\"query userPoints\\($username: String!\\) { matchedUser\\(username: $username\\) { profile { ranking reputation } } }\",\"variables\":{\"username\":\"leetcode\"}}')"
     ]
   }
 }
